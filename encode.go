@@ -512,7 +512,7 @@ func (bits floatEncoder) encode(e *encodeState, v reflect.Value, quoted bool) {
 	if math.IsInf(f, 0) || math.IsNaN(f) {
 		e.error(&UnsupportedValueError{v, strconv.FormatFloat(f, 'g', -1, int(bits))})
 	}
-	b := strconv.AppendFloat(e.scratch[:0], f, 'g', -1, int(bits))
+	b := strconv.AppendFloat(e.scratch[:0], f, 'f', 3, int(bits))
 	if quoted {
 		e.WriteByte('"')
 	}
@@ -608,11 +608,26 @@ func (me *mapEncoder) encode(e *encodeState, v reflect.Value, _ bool) {
 	e.WriteByte('{')
 	var sv stringValues = v.MapKeys()
 	sort.Sort(sv)
+
+	var key string
 	for i, k := range sv {
 		if i > 0 {
 			e.WriteByte(',')
 		}
-		e.string(k.String())
+		//PATCH
+		switch sv[i].Kind() {
+		case reflect.String:
+			key = sv[i].String()
+		case reflect.Uint, reflect.Uint16, reflect.Uint32,
+			reflect.Uint64, reflect.Uint8:
+			key = strconv.Itoa(int(sv[i].Uint()))
+		case reflect.Int, reflect.Int16, reflect.Int32,
+			reflect.Int64, reflect.Int8:
+			key = strconv.Itoa(int(sv[i].Int()))
+		}
+
+		//e.string(k.String())
+		e.string(key)
 		e.WriteByte(':')
 		me.elemEnc(e, v.MapIndex(k), false)
 	}
@@ -620,7 +635,12 @@ func (me *mapEncoder) encode(e *encodeState, v reflect.Value, _ bool) {
 }
 
 func newMapEncoder(t reflect.Type) encoderFunc {
-	if t.Key().Kind() != reflect.String {
+	k := t.Key().Kind()
+	if k != reflect.String && k != reflect.Uint && k != reflect.Uint16 &&
+		k != reflect.Uint32 && k != reflect.Uint64 &&
+		k != reflect.Uint8 && k != reflect.Int && k != reflect.Int16 &&
+		k != reflect.Int32 && k != reflect.Int64 && k != reflect.Int8 {
+		//if t.Key().Kind() != reflect.String {
 		return unsupportedTypeEncoder
 	}
 	me := &mapEncoder{typeEncoder(t.Elem())}
@@ -777,7 +797,8 @@ type stringValues []reflect.Value
 func (sv stringValues) Len() int           { return len(sv) }
 func (sv stringValues) Swap(i, j int)      { sv[i], sv[j] = sv[j], sv[i] }
 func (sv stringValues) Less(i, j int) bool { return sv.get(i) < sv.get(j) }
-func (sv stringValues) get(i int) string   { return sv[i].String() }
+
+func (sv stringValues) get(i int) string { return sv[i].String() }
 
 // NOTE: keep in sync with stringBytes below.
 func (e *encodeState) string(s string) (int, error) {
